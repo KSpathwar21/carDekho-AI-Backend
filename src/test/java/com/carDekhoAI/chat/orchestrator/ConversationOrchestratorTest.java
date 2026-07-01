@@ -9,6 +9,7 @@ import com.carDekhoAI.chat.agent.ConversationAgent;
 import com.carDekhoAI.chat.dto.ChatResponse;
 import com.carDekhoAI.chat.model.Conversation;
 import com.carDekhoAI.chat.model.ConversationStatus;
+import com.carDekhoAI.chat.model.MessageRole;
 import com.carDekhoAI.chat.store.ConversationStore;
 import com.carDekhoAI.preference.agent.PreferenceAgent;
 import com.carDekhoAI.preference.dto.UserPreference;
@@ -92,6 +93,22 @@ class ConversationOrchestratorTest {
         assertThat(conversation.getStatus()).isEqualTo(ConversationStatus.IN_PROGRESS);
         verify(conversationStore).save(conversation);
         verifyNoInteractions(sqlAgent, databaseTool, recommendationAgent);
+    }
+
+    @Test
+    void appendsUserAndAssistantMessagesToConversationTranscript() {
+        UserPreference incomplete = new UserPreference(
+                1800000L, null, null, null, null, null, null, null, null, null);
+        when(preferenceAgent.extract(conversation)).thenReturn(incomplete);
+        when(conversationAgent.nextQuestion(conversation, incomplete)).thenReturn("What fuel type?");
+
+        orchestrator.handleMessage("conv-1", "Around 18 lakh budget");
+
+        assertThat(conversation.getMessages()).hasSize(2);
+        assertThat(conversation.getMessages().get(0).role()).isEqualTo(MessageRole.USER);
+        assertThat(conversation.getMessages().get(0).content()).isEqualTo("Around 18 lakh budget");
+        assertThat(conversation.getMessages().get(1).role()).isEqualTo(MessageRole.ASSISTANT);
+        assertThat(conversation.getMessages().get(1).content()).isEqualTo("What fuel type?");
     }
 
     @Test

@@ -119,6 +119,24 @@ class SqlValidatorTest {
     }
 
     @Test
+    void rejectsSubqueryInHavingClause() {
+        SqlValidationResult result = validator.validate(
+                "SELECT brand, COUNT(*) FROM cars GROUP BY brand "
+                        + "HAVING COUNT(*) > (SELECT AVG(price) FROM cars)");
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.reason()).containsIgnoringCase("subquer");
+    }
+
+    @Test
+    void rejectsUnparseableSyntax() {
+        SqlValidationResult result = validator.validate("SELEKT * FRM cars WHERE");
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.reason()).containsIgnoringCase("could not be parsed");
+    }
+
+    @Test
     void rejectsWrongTable() {
         SqlValidationResult result = validator.validate("SELECT * FROM users LIMIT 5");
 

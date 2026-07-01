@@ -348,9 +348,38 @@ Covered by `GlobalExceptionHandlerTest` (8 cases, plain JUnit + Mockito, no
 Spring context — same zero-network convention as every other test in this
 project) — 64/64 total tests passing.
 
-**M10 — Testing**
-JUnit 5 + Mockito unit tests for `SqlValidator`, `ConversationOrchestrator`,
-`RecommendationAgent`, `DatabaseTool` (per `CLAUDE_BACKEND.md`).
+**M10 — Testing** ✅ *done*
+`SqlValidator`, `ConversationOrchestrator`, `RecommendationAgent`, and
+`DatabaseTool` — the four classes `CLAUDE_BACKEND.md` calls out by name —
+already had JUnit 5 + Mockito unit tests written incrementally alongside
+M7/M8 (this project builds tests with the code, not after it). M10's actual
+work was an audit pass over those four suites specifically, reading each
+class's branches against its existing tests to find real gaps rather than
+padding with redundant cases:
+- `SqlValidatorTest` (26 → 28 cases): added `rejectsSubqueryInHavingClause`
+  (the `HAVING` arm of `containsNestedSelect` had no direct test — only
+  `WHERE` and select-item subqueries were covered) and
+  `rejectsUnparseableSyntax` (genuinely malformed SQL, e.g. `SELEKT * FRM
+  cars`, to exercise the `JSQLParserException` catch branch — the existing
+  "multiple statements" test only exercised the separate `size() != 1`
+  branch, both of which return through the same `parseStatements` call but
+  via different code paths).
+- `ConversationOrchestratorTest` (4 → 5 cases): added
+  `appendsUserAndAssistantMessagesToConversationTranscript` — every existing
+  test asserted on the returned `ChatResponse` but none verified
+  `handleMessage`'s side effect of appending both the user's message and the
+  assistant's reply to `Conversation.messages`, which `PreferenceAgent`'s
+  next-turn transcript re-extraction depends on.
+- `RecommendationAgentTest` (6 cases) and `DatabaseToolTest` (6 cases):
+  audited against their source and found no gaps — `RecommendationAgent` is
+  a thin prompt-building passthrough to `LlmClient` (already fully exercised,
+  and failure propagation needs no dedicated test since nothing catches or
+  transforms the exception), and `DatabaseTool`'s branches (reorder, empty
+  result, both `DataAccessException` wrap points, orphaned-ID filtering,
+  SQL passthrough) were already each covered one-to-one.
+
+67/67 tests passing, no network (same zero-network convention as every
+other milestone).
 
 **M11 — Docker & Railway**
 `Dockerfile`, `docker-compose.yml` (app + MySQL), confirm `application.yml`
