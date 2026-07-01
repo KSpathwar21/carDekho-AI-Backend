@@ -42,9 +42,9 @@ com.carDekhoAI
 │   └── dto/                      UserPreference
 │
 ├── sql/                          # text-to-SQL feature
-│   ├── agent/                    SqlAgent
-│   ├── validator/                SqlValidator
-│   └── dto/                      SqlResponse
+│   ├── agent/                    SqlAgent, SqlGenerationException
+│   ├── validator/                SqlValidator (JSqlParser AST-based), SqlValidationResult
+│   └── dto/                      (empty — SqlResponse deferred to M8)
 │
 ├── car/                          # car catalog feature
 │   ├── controller/                CarController          (/cars, /cars/{id})
@@ -84,6 +84,7 @@ need it unchanged.
 | `spring-boot-starter-validation` | Bean Validation on request DTOs |
 | `spring-boot-starter-actuator` | `/health` (Railway-compatible) |
 | `spring-ai-starter-model-anthropic` (BOM `spring-ai-bom:1.1.8`) | Anthropic Claude chat client for all agents |
+| `jsqlparser:5.3` | AST-based SQL parsing for `SqlValidator` (security boundary — real parsing, not regex) |
 | `lombok` | reduce boilerplate on entities/DTOs |
 | `spring-boot-starter-test` | JUnit 5 + Mockito |
 
@@ -249,11 +250,35 @@ no network). Live end-to-end verification (`/chat/start` → `/chat/message`
 against the real Anthropic API) remains blocked on the same billing issue
 noted in M5.
 
-**M7 — SQL Agent + Validator**
-`sql/agent/SqlAgent` generates SQL from `UserPreference`.
-`sql/validator/SqlValidator` allow-lists `SELECT/WHERE/ORDER BY/LIMIT/AND/OR/LIKE`
-and rejects `UPDATE/DELETE/INSERT/DROP/ALTER/CREATE/TRUNCATE/UNION/subqueries/
-multiple statements`. Invalid SQL triggers regeneration, not execution.
+**M7 — SQL Agent + Validator** ✅ *done*
+`sql/validator/SqlValidator` validates via **real AST parsing (JSqlParser 5.3)**,
+not regex — the user opted for genuine defense-in-depth over the docs' literal
+keyword-matching design. `Statement` → `PlainSelect` type-checking structurally
+rejects every forbidden statement type (`UPDATE`/`DELETE`/`INSERT`/`DROP`/
+`ALTER`/`CREATE`/`TRUNCATE`/`UNION`) in one check; `FROM`/`JOIN` inspection
+enforces single-table (`cars`) scope; `WHERE`/`HAVING`/select-item expressions
+are scanned (via their parsed, deparsed form — immune to comment obfuscation)
+for nested `SELECT`s to reject subqueries. `sql/agent/SqlAgent` generates SQL
+from `UserPreference` with a system prompt embedding the real schema and the
+fact that enum columns store exact UPPERCASE values; on rejection it retries
+up to 3 times, feeding the validator's specific rejection reason back into the
+prompt so the LLM can fix the actual problem; `SqlGenerationException` after
+exhausting attempts. `sql/dto/SqlResponse` deliberately **not created** —
+same deferred-until-needed precedent as M4/M6 (M8 decides the shape it
+actually needs). Covered by `SqlValidatorTest` (26 cases) and `SqlAgentTest`
+(4 cases), 43/43 total passing, no network.
+
+**A real bug was caught by the test suite during this milestone**:
+`CCJSqlParserUtil.parse(String)` — verified via source, not docs — turned out
+to only call the grammar's single-`Statement()` production and **does not
+check for trailing content**, so `"SELECT * FROM cars; DROP TABLE cars"`
+silently parsed as just the first statement, passing validation. Fixed by
+switching to `CCJSqlParserUtil.parseStatements(String)` (`Statements extends
+ArrayList<Statement>`) and rejecting unless `statements.size() == 1` — the
+purpose-built API for exactly this case. A reminder that library source
+needs verifying even when the initial read seemed to confirm the intended
+behavior (an EOF check existed in the file, just in a different, unused
+overload).
 
 **M8 — Database Tool + Recommendation Flow**
 `car/tool/DatabaseTool` executes validated SQL via `JdbcTemplate`, returns
