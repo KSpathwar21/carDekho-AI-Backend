@@ -1,0 +1,43 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: carDekho-ai-backend
+
+  datasource:
+    url: ${DB_URL:jdbc:mysql://reseau.proxy.rlwy.net:40413/railway}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:SohLjDeloipNZRuqZlJepwMEmtoEALew}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  ai:
+    google:
+      genai:
+        api-key: ${GEMINI_API_KEY:}
+        chat:
+          model: ${GEMINI_MODEL:gemini-3-flash-preview}
+
+  jackson:
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  level:
+    com.carDekhoAI: INFO
+
+cors:
+  allowed-origins: ${FRONTEND_ORIGIN:http://localhost:5173}
