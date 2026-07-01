@@ -30,14 +30,15 @@ com.carDekhoAI
 │
 ├── chat/                        # conversation lifecycle feature
 │   ├── controller/               ChatController        (/chat/start, /chat/message)
-│   ├── orchestrator/             ConversationOrchestrator
+│   ├── orchestrator/             ConversationOrchestrator, ConversationNotFoundException
 │   ├── agent/                    ConversationAgent
-│   ├── model/                    Conversation, Message
+│   ├── model/                    Conversation (+preferences, toTranscript()), Message, MessageRole, ConversationStatus
 │   ├── store/                    ConversationStore (in-memory, ConcurrentHashMap)
-│   └── dto/                      ChatRequest, ChatResponse, ConversationResponse
+│   ├── service/                  ConversationService (M4's thin store-interaction layer)
+│   └── dto/                      ConversationResponse, ChatRequest, ChatResponse
 │
 ├── preference/                   # structured preference extraction feature
-│   ├── agent/                    PreferenceAgent
+│   ├── agent/                    PreferenceAgent, PreferenceExtractionException
 │   └── dto/                      UserPreference
 │
 ├── sql/                          # text-to-SQL feature
@@ -59,7 +60,7 @@ com.carDekhoAI
 │
 ├── llm/                          # shared LLM access (used by all agents above)
 │   ├── config/                    LlmConfig (ChatClient bean)
-│   └── client/                    LlmClient (thin wrapper, prompt logging)
+│   └── client/                    LlmClient (prompt logging), LlmException
 │
 └── common/                       # cross-cutting only
     ├── config/                    CorsConfig, JacksonConfig
@@ -82,7 +83,7 @@ need it unchanged.
 | `mysql-connector-j` | MySQL driver (runtime) |
 | `spring-boot-starter-validation` | Bean Validation on request DTOs |
 | `spring-boot-starter-actuator` | `/health` (Railway-compatible) |
-| `spring-ai-starter-model-google-genai` (BOM `spring-ai-bom:1.1.8`) | Gemini Developer API chat client for all agents |
+| `spring-ai-starter-model-anthropic` (BOM `spring-ai-bom:1.1.8`) | Anthropic Claude chat client for all agents |
 | `lombok` | reduce boilerplate on entities/DTOs |
 | `spring-boot-starter-test` | JUnit 5 + Mockito |
 
@@ -95,16 +96,20 @@ Notes:
   Spring Boot 3.x, no breaking changes) after discovering `spring-ai-bom:2.0.0`
   requires Spring Boot 4.1.0 (`org.springframework.core.retry.RetryTemplate`
   only exists in Spring Framework 6.2+). Rather than jump to Boot 4, pinned
-  Spring AI to the **1.1.8** line, which targets Boot 3.5.15 and still ships
-  the same `spring-ai-starter-model-google-genai` starter.
-- LLM provider is **Gemini via the Developer API** (`spring-ai-starter-model-google-genai`,
-  not Vertex AI — the provided key is an `AIzaSy...` Generative Language API
-  key, so `spring.ai.google.genai.api-key` auth mode applies; setting
-  `project-id`/`location` anywhere would flip the client into Vertex AI mode
-  and break auth). Config: `spring.ai.google.genai.api-key` and
-  `spring.ai.google.genai.chat.model`, sourced from env vars `GEMINI_API_KEY`
-  and `GEMINI_MODEL` (default `gemini-3-flash-preview`).
-- `application.yml` reads `GEMINI_API_KEY`, `GEMINI_MODEL`, `DB_URL`,
+  Spring AI to the **1.1.8** line, which targets Boot 3.5.15.
+- LLM provider is **Anthropic Claude** (`spring-ai-starter-model-anthropic`,
+  API-key auth). Config: `spring.ai.anthropic.api-key` and
+  `spring.ai.anthropic.chat.options.model` (nested under `options`, verified
+  against `AnthropicChatProperties`/`AnthropicConnectionProperties` source at
+  v1.1.8 — same nested-options pattern the Gemini integration used), sourced
+  from env vars `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` (default
+  `claude-opus-4-8`). Switched from Gemini after repeated credential problems
+  (leaked-key revocation, then a value that turned out to be a short-lived
+  OAuth token rather than a real API key) — Anthropic's `sk-ant-...` keys
+  don't have that ambiguity. `LlmConfig`/`LlmClient`/`LlmException` needed
+  zero code changes for the swap since they only depend on Spring AI's
+  provider-agnostic `ChatClient`/`ChatClient.Builder`.
+- `application.yml` reads `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `DB_URL`,
   `DB_USERNAME`, `DB_PASSWORD`, `PORT`, `FRONTEND_ORIGIN` from env — nothing
   hardcoded.
 - Dev/test database is a **Railway-hosted MySQL** (public proxy host/port
@@ -116,14 +121,13 @@ Notes:
   by hand every time. Activate it once in IntelliJ: **Run/Debug Configurations
   → CarDekhoAiApplication → Active profiles: `local`** (or `mvnw spring-boot:run
   -Dspring-boot.run.profiles=local` from the CLI). Without this profile active,
-  the app won't connect — `application.yml`'s `DB_PASSWORD`/`GEMINI_API_KEY`
+  the app won't connect — `application.yml`'s `DB_PASSWORD`/`ANTHROPIC_API_KEY`
   placeholders have no working defaults by design (never hardcode secrets in
   the committed base config).
-- `GEMINI_API_KEY.txt` in the repo root holds the actual dev key. It is now
-  gitignored (`.gitignore` → `GEMINI_API_KEY.txt`, `*.env`, `.env.*`) so it's
-  never committed. Load it into your shell/IDE run config before running the
-  app, e.g. `export GEMINI_API_KEY=<value from file>` — don't reference the
-  raw file from application code.
+- Anthropic account currently has **no billing/credits** — auth succeeds
+  (confirmed via a live call) but requests fail with "credit balance is too
+  low". Live end-to-end LLM verification is blocked until billing is set up
+  at console.anthropic.com; all code is otherwise verified via mocked tests.
 
 The Maven Wrapper (`mvnw` / `mvnw.cmd` / `.mvn/wrapper/`) is included, so the
 project builds with one command: `./mvnw.cmd compile`. Verified with
@@ -171,23 +175,79 @@ Verified end to end against the live Railway DB: Hibernate created `cars`
 returns paginated `CarResponse` JSON with `pros`/`cons` arrays; `GET /cars/2`
 returns the full car; `GET /cars/9999` returns HTTP 404.
 
-**M4 — Conversation Core (no LLM yet)**
-`chat/model/Conversation`, `chat/model/Message`, `chat/store/ConversationStore`
-(in-memory `ConcurrentHashMap`), `chat/dto/*`. `ChatController` with
-`/chat/start` returning a stubbed greeting so the wiring is provable before
-LLM calls are involved.
+**M4 — Conversation Core (no LLM yet)** ✅ *done*
+`chat/model/{MessageRole, ConversationStatus}` enums, `Message` (record),
+`Conversation` (mutable, id-only equality, mirrors `Car`'s Lombok pattern).
+`chat/store/ConversationStore` (in-memory `ConcurrentHashMap`).
+`chat/service/ConversationService` builds a new `Conversation` seeded with
+the assistant's greeting and saves it. `chat/dto/ConversationResponse`
+(`{conversationId, assistantMessage}`) + `ChatController` (`POST /chat/start`).
+`ChatRequest`/`ChatResponse` and `Conversation.preferences` deliberately
+**deferred to M6** — they belong to `POST /chat/message`, which isn't wired
+until the orchestrator/agents exist. Covered by `ConversationServiceTest`;
+verified live (`POST /chat/start` → distinct `conversationId` + exact
+greeting text on repeated calls).
 
-**M5 — LLM Integration**
-`llm/config/LlmConfig` (Spring AI `ChatClient` bean from `OPENAI_API_KEY`).
-`llm/client/LlmClient` thin wrapper that logs prompt/latency
-(`CLAUDE_BACKEND.md` logging requirements) and centralizes error handling.
+**M5 — LLM Integration** ✅ *done, provider switched Gemini → Anthropic*
+`llm/config/LlmConfig` exposes a `ChatClient` bean from the auto-configured
+`ChatClient.Builder` (provider-agnostic — currently Anthropic Claude).
+`llm/client/LlmClient` — the one shared LLM client used by all future agents
+— with `call(conversationId, userMessage)` and `call(conversationId,
+systemPrompt, userMessage)` overloads, logging conversation ID/prompt/latency
+(never the API key) via `@Slf4j`, and wrapping any failure in
+`llm/client/LlmException`. Covered by a mocked `LlmClientTest` (no network).
 
-**M6 — Agents: Conversation + Preference**
-`chat/agent/ConversationAgent` (ask one question at a time, never repeat).
-`preference/agent/PreferenceAgent` (extract `UserPreference` JSON: budget,
-fuelType, bodyType, transmission, drivingPattern, familySize, priority +
-optional fields). Orchestrator decides "enough info?" and loops back to
-`/chat/message` with the next question when not.
+Originally built and initially verified against Gemini (Spring AI's Google
+GenAI starter), then switched to Anthropic Claude after Gemini credentials
+kept failing for reasons outside this codebase: the first key was revoked by
+Google as leaked, and a follow-up value turned out to be a short-lived OAuth
+token rather than a real API key. The provider swap required **zero Java
+code changes** — only `pom.xml` (`spring-ai-starter-model-google-genai` →
+`spring-ai-starter-model-anthropic`) and `application.yml`/`application-local.yml`
+config changed, since `LlmConfig`/`LlmClient` were built against Spring AI's
+provider-agnostic `ChatClient` abstraction from the start.
+
+Bugs found and fixed via live verification (same nested-`options` gotcha hit
+on both providers — Spring AI 1.1.8 consistently nests chat model config
+under `chat.options.model`, not a flat `chat.model`, verified against
+`GoogleGenAiChatProperties`/`AnthropicChatProperties` source directly):
+- `spring.ai.google.genai.chat.model` wasn't a real property — silently
+  ignored, so Gemini calls used the library's undocumented default
+  (`gemini-2.0-flash`) instead of the configured model. Same class of bug
+  avoided on the Anthropic side by verifying `spring.ai.anthropic.chat.options.model`
+  against source before wiring it.
+- The original Gemini key was revoked by Google as leaked; a replacement
+  value copied from AI Studio's UI turned out to be a short-lived OAuth
+  token (worked once, then failed with `401: Expected OAuth 2 access token`)
+  rather than a real `AIzaSy...` API key.
+- Current state: Anthropic Claude (`claude-opus-4-8`), key format verified
+  correct (`sk-ant-api03-...`, authenticates successfully), but the account
+  has no billing/credits yet — live calls fail with "credit balance is too
+  low" until billing is set up. Not a code issue.
+
+**M6 — Agents: Conversation + Preference** ✅ *done*
+`preference/dto/UserPreference` (record: `budget`/`familySize`/`groundClearance`/
+`bootSpace` numeric, category fields as `String` — not enums, since these are
+LLM-extracted from free text rather than our own seed data; `isComplete()`
+checks the 7 required fields). `preference/agent/PreferenceAgent` re-extracts
+the full `UserPreference` from the whole transcript every turn (via
+`Conversation.toTranscript()`, added to the model along with the `preferences`
+field), strips markdown code fences, parses with Jackson, throws
+`PreferenceExtractionException` on malformed JSON.
+`chat/agent/ConversationAgent` asks the next question, passing an explicit
+"still need: X, Y, Z" hint (derived from missing `UserPreference` fields) so
+the model doesn't have to infer what's already been asked. `chat/orchestrator/
+ConversationOrchestrator` (+ `ConversationNotFoundException`) coordinates both
+agents behind the new `POST /chat/message` (`ChatRequest`/`ChatResponse` —
+`recommendations`/`comparison` deliberately deferred to M8, same reasoning as
+M4's DTO scoping). When preferences are complete, returns a plain-language
+summary of what was captured (`completed=true`) rather than fake
+recommendations — M8 replaces that branch with the real SQL → DB →
+RecommendationAgent chain. Covered by `PreferenceAgentTest`,
+`ConversationAgentTest`, `ConversationOrchestratorTest` (13/13 tests passing,
+no network). Live end-to-end verification (`/chat/start` → `/chat/message`
+against the real Anthropic API) remains blocked on the same billing issue
+noted in M5.
 
 **M7 — SQL Agent + Validator**
 `sql/agent/SqlAgent` generates SQL from `UserPreference`.

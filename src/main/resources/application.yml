@@ -8,7 +8,7 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:mysql://reseau.proxy.rlwy.net:40413/railway}
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:SohLjDeloipNZRuqZlJepwMEmtoEALew}
+    password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
@@ -20,11 +20,11 @@ spring:
         format_sql: true
 
   ai:
-    google:
-      genai:
-        api-key: ${GEMINI_API_KEY:}
-        chat:
-          model: ${GEMINI_MODEL:gemini-3-flash-preview}
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        options:
+          model: ${ANTHROPIC_MODEL:claude-opus-4-8}
 
   jackson:
     default-property-inclusion: non_null
