@@ -77,4 +77,41 @@ class SqlAgentTest {
                 .hasMessageContaining("always invalid");
         verify(llmClient, times(3)).call(eq("conv-1"), anyString(), anyString());
     }
+
+    @Test
+    void generateFallbackSqlReturnsValidatedSqlOnFirstAttempt() {
+        String fallbackSql = "SELECT * FROM cars ORDER BY ABS(price - 1500000) LIMIT 5";
+        when(llmClient.call(eq("conv-1"), anyString(), anyString())).thenReturn(fallbackSql);
+        when(sqlValidator.validate(fallbackSql)).thenReturn(SqlValidationResult.ok());
+
+        String result = sqlAgent.generateFallbackSql("conv-1", preferences);
+
+        assertThat(result).isEqualTo(fallbackSql);
+    }
+
+    @Test
+    void generateFallbackSqlUsesADifferentSystemPromptThanStrictGeneration() {
+        ArgumentCaptor<String> systemPromptCaptor = ArgumentCaptor.forClass(String.class);
+        when(llmClient.call(eq("conv-1"), systemPromptCaptor.capture(), anyString()))
+                .thenReturn("SELECT * FROM cars LIMIT 5");
+        when(sqlValidator.validate(anyString())).thenReturn(SqlValidationResult.ok());
+
+        sqlAgent.generateValidatedSql("conv-1", preferences);
+        sqlAgent.generateFallbackSql("conv-1", preferences);
+
+        assertThat(systemPromptCaptor.getAllValues()).hasSize(2);
+        assertThat(systemPromptCaptor.getAllValues().get(0)).isNotEqualTo(systemPromptCaptor.getAllValues().get(1));
+        assertThat(systemPromptCaptor.getAllValues().get(1)).containsIgnoringCase("closest");
+    }
+
+    @Test
+    void generateFallbackSqlThrowsSqlGenerationExceptionAfterExhaustingAttempts() {
+        when(llmClient.call(eq("conv-1"), anyString(), anyString())).thenReturn("SELECT * FROM users LIMIT 5");
+        when(sqlValidator.validate(anyString())).thenReturn(SqlValidationResult.reject("always invalid"));
+
+        assertThatThrownBy(() -> sqlAgent.generateFallbackSql("conv-1", preferences))
+                .isInstanceOf(SqlGenerationException.class)
+                .hasMessageContaining("always invalid");
+        verify(llmClient, times(3)).call(eq("conv-1"), anyString(), anyString());
+    }
 }

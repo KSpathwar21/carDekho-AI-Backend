@@ -114,6 +114,26 @@ class RecommendationAgentTest {
     }
 
     @Test
+    void threeArgOverloadDefaultsToExactMatch() {
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        when(llmClient.call(eq("conv-1"), anyString(), promptCaptor.capture())).thenReturn("ok");
+
+        recommendationAgent.explain("conv-1", preferences, List.of(carA()));
+
+        assertThat(promptCaptor.getValue()).containsIgnoringCase("Match type: EXACT");
+    }
+
+    @Test
+    void marksPromptAsClosestMatchWhenExactMatchIsFalse() {
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        when(llmClient.call(eq("conv-1"), anyString(), promptCaptor.capture())).thenReturn("ok");
+
+        recommendationAgent.explain("conv-1", preferences, List.of(carA()), false);
+
+        assertThat(promptCaptor.getValue()).containsIgnoringCase("Match type: CLOSEST");
+    }
+
+    @Test
     void handlesEmptyProsAndConsWithoutError() {
         Car noProsAndCons = Car.builder()
                 .id(3L)

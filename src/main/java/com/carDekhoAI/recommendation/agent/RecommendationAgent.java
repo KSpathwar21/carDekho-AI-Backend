@@ -14,15 +14,22 @@ public class RecommendationAgent {
             You are an automotive expert helping a customer choose a car in India.
 
             You will be given the customer's stated preferences and a ranked list of
-            cars that matched those preferences in the database, in ranked order
-            (most recommended first).
+            cars, in ranked order (most recommended first). The list is either:
+            - EXACT matches: every car satisfies all of the customer's stated
+              preferences, or
+            - CLOSEST matches: no car satisfied every preference, so these are the
+              nearest available alternatives, ranked by how closely they match.
+              You will be told explicitly which case applies.
 
             Write a markdown-formatted response that:
-            - Opens with a brief summary of what the customer is looking for and
-              how well these cars match.
+            - Opens with a brief summary of what the customer is looking for.
+              If this is a CLOSEST-matches list, say plainly up front that no car
+              matched every criterion, before presenting the alternatives.
             - For each car, explains why it suits the customer, referencing its
-              Pros and Cons (as provided) and any relevant trade-offs versus the
-              customer's stated priority.
+              Pros and Cons (as provided). If this is a CLOSEST-matches list, also
+              call out specifically which of the customer's preferences this car
+              does NOT meet (e.g. "over budget by X", "diesel instead of the
+              requested petrol") alongside why it's still worth considering.
             - Closes with a short "Alternative Suggestions" section noting what
               the customer could consider adjusting (e.g. a different body type
               or a slightly higher budget) if none of these are a perfect fit.
@@ -42,12 +49,26 @@ public class RecommendationAgent {
     }
 
     public String explain(String conversationId, UserPreference preferences, List<Car> cars) {
-        String userMessage = buildUserMessage(preferences, cars);
+        return explain(conversationId, preferences, cars, true);
+    }
+
+    /**
+     * @param exactMatch false when {@code cars} come from {@link com.carDekhoAI.sql.agent.SqlAgent#generateFallbackSql}
+     *                    (no car matched every preference) rather than the strict query, so the
+     *                    explanation should call out which preferences each car misses.
+     */
+    public String explain(String conversationId, UserPreference preferences, List<Car> cars, boolean exactMatch) {
+        String userMessage = buildUserMessage(preferences, cars, exactMatch);
         return llmClient.call(conversationId, SYSTEM_PROMPT, userMessage);
     }
 
-    private String buildUserMessage(UserPreference preferences, List<Car> cars) {
-        StringBuilder message = new StringBuilder("Customer preferences:\n");
+    private String buildUserMessage(UserPreference preferences, List<Car> cars, boolean exactMatch) {
+        StringBuilder message = new StringBuilder(
+                exactMatch
+                        ? "Match type: EXACT - every car below satisfies all stated preferences.\n\n"
+                        : "Match type: CLOSEST - no car satisfied every preference; these are the "
+                                + "nearest available alternatives, ranked by closeness.\n\n");
+        message.append("Customer preferences:\n");
         appendIfPresent(message, "budget", preferences.budget());
         appendIfPresent(message, "fuelType", preferences.fuelType());
         appendIfPresent(message, "bodyType", preferences.bodyType());

@@ -427,6 +427,42 @@ padding with redundant cases:
 67/67 tests passing, no network (same zero-network convention as every
 other milestone).
 
+**Post-M10 update: near-match fallback instead of a dead end on zero exact
+matches.** M8's original design deliberately skipped `RecommendationAgent`
+and returned a deterministic "no matches" message when the strict query
+found zero cars (see M8 notes above) — a reasonable call at the time, but
+UX feedback was that a dead end is worse than an imperfect suggestion when
+the catalog is small. Changed to a two-tier query:
+- `SqlAgent.generateFallbackSql` (new method, sharing the existing 3-retry
+  validation loop via an extracted private overload — no duplication) uses
+  a distinct system prompt: no `WHERE` clause requiring every preference to
+  match (that's what already returned zero rows), instead `ORDER BY`
+  expressions ranking by closeness (`ABS(price - budget)`, `CASE WHEN
+  body_type = 'SUV' THEN 0 ELSE 1 END`, etc.) so exact matches on any given
+  field sort first without excluding cars that miss others.
+- `ConversationOrchestrator.buildRecommendationResponse` now calls the
+  fallback only when the strict query returns empty, and still falls
+  through to the original deterministic "no matches" message if *even the
+  fallback* returns nothing (i.e. the table itself has nothing usable —
+  genuinely empty, not just an overly strict filter).
+- `RecommendationAgent.explain` gained a `boolean exactMatch` parameter
+  (3-arg overload defaults to `true`, preserving the old call sites/tests
+  that don't care about the distinction) that changes both the system
+  prompt and the user-message header (`Match type: EXACT` vs `Match type:
+  CLOSEST`), so the LLM explicitly tells the customer up front when a
+  result is a near-match, and per-car explains *which* stated preference
+  that specific car misses (over budget, wrong fuel type, etc.) rather than
+  presenting an approximate result as if it were exact — the same
+  anti-hallucination discipline from M8, extended to also never *imply* an
+  exact match that isn't one.
+
+Covered by 6 new/updated tests across `SqlAgentTest`, `RecommendationAgentTest`,
+`ConversationOrchestratorTest` (including a dedicated
+`completesWithClosestMatchesWhenStrictQueryReturnsNoResults` case verifying
+the fallback SQL is generated, executed, and explained with `exactMatch=false`,
+and a renamed `completesWithEmptyResultsWhenNoCarsMatchEvenAfterFallback`
+covering the still-possible true-zero-results case) — 73/73 tests passing.
+
 **M11 — Docker & Railway**
 `Dockerfile`, `docker-compose.yml` (app + MySQL), confirm `application.yml`
 env vars are the only thing that changes between local and Railway, confirm

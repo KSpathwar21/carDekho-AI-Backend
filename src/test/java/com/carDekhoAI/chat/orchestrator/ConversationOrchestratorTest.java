@@ -25,6 +25,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -120,7 +121,7 @@ class ConversationOrchestratorTest {
         Car carB = car(2L, "Tata");
         List<Car> cars = List.of(carA, carB);
         when(databaseTool.execute("SELECT * FROM cars LIMIT 5")).thenReturn(cars);
-        when(recommendationAgent.explain("conv-1", completePreferences, cars))
+        when(recommendationAgent.explain("conv-1", completePreferences, cars, true))
                 .thenReturn("## Summary\nGreat picks!");
 
         ChatResponse response = orchestrator.handleMessage("conv-1", "Safety is my top priority");
@@ -133,14 +134,43 @@ class ConversationOrchestratorTest {
         assertThat(conversation.getStatus()).isEqualTo(ConversationStatus.COMPLETED);
         verify(conversationAgent, never()).nextQuestion(any(), any());
         verify(conversationStore).save(conversation);
+        verify(sqlAgent, never()).generateFallbackSql(any(), any());
     }
 
     @Test
-    void completesWithEmptyResultsWhenNoCarsMatch() {
+    void completesWithClosestMatchesWhenStrictQueryReturnsNoResults() {
         when(preferenceAgent.extract(conversation)).thenReturn(completePreferences);
         when(sqlAgent.generateValidatedSql("conv-1", completePreferences))
                 .thenReturn("SELECT * FROM cars WHERE price <= 100 LIMIT 5");
         when(databaseTool.execute("SELECT * FROM cars WHERE price <= 100 LIMIT 5")).thenReturn(List.of());
+        when(sqlAgent.generateFallbackSql("conv-1", completePreferences))
+                .thenReturn("SELECT * FROM cars ORDER BY ABS(price - 1800000) LIMIT 5");
+        Car closest = car(3L, "Hyundai");
+        List<Car> fallbackCars = List.of(closest);
+        when(databaseTool.execute("SELECT * FROM cars ORDER BY ABS(price - 1800000) LIMIT 5"))
+                .thenReturn(fallbackCars);
+        when(recommendationAgent.explain("conv-1", completePreferences, fallbackCars, false))
+                .thenReturn("## Summary\nNo exact match, but here's the closest option.");
+
+        ChatResponse response = orchestrator.handleMessage("conv-1", "Safety is my top priority");
+
+        assertThat(response.completed()).isTrue();
+        assertThat(response.assistantMessage()).isEqualTo("## Summary\nNo exact match, but here's the closest option.");
+        assertThat(response.recommendations()).hasSize(1);
+        assertThat(response.recommendations().get(0).brand()).isEqualTo("Hyundai");
+        assertThat(conversation.getStatus()).isEqualTo(ConversationStatus.COMPLETED);
+        verify(conversationStore).save(conversation);
+    }
+
+    @Test
+    void completesWithEmptyResultsWhenNoCarsMatchEvenAfterFallback() {
+        when(preferenceAgent.extract(conversation)).thenReturn(completePreferences);
+        when(sqlAgent.generateValidatedSql("conv-1", completePreferences))
+                .thenReturn("SELECT * FROM cars WHERE price <= 100 LIMIT 5");
+        when(databaseTool.execute("SELECT * FROM cars WHERE price <= 100 LIMIT 5")).thenReturn(List.of());
+        when(sqlAgent.generateFallbackSql("conv-1", completePreferences))
+                .thenReturn("SELECT * FROM cars LIMIT 5");
+        when(databaseTool.execute("SELECT * FROM cars LIMIT 5")).thenReturn(List.of());
 
         ChatResponse response = orchestrator.handleMessage("conv-1", "Safety is my top priority");
 
@@ -149,7 +179,7 @@ class ConversationOrchestratorTest {
         assertThat(response.comparison()).isEmpty();
         assertThat(response.assistantMessage()).containsIgnoringCase("couldn't find");
         assertThat(conversation.getStatus()).isEqualTo(ConversationStatus.COMPLETED);
-        verify(recommendationAgent, never()).explain(any(), any(), any());
+        verify(recommendationAgent, never()).explain(any(), any(), any(), anyBoolean());
         verify(conversationStore).save(conversation);
     }
 }

@@ -72,6 +72,13 @@ public class ConversationOrchestrator {
     private ChatResponse buildRecommendationResponse(String conversationId, UserPreference preferences) {
         String sql = sqlAgent.generateValidatedSql(conversationId, preferences);
         List<Car> cars = databaseTool.execute(sql);
+        boolean exactMatch = true;
+
+        if (cars.isEmpty()) {
+            String fallbackSql = sqlAgent.generateFallbackSql(conversationId, preferences);
+            cars = databaseTool.execute(fallbackSql);
+            exactMatch = false;
+        }
 
         if (cars.isEmpty()) {
             String message = "I couldn't find any cars matching all of your criteria. "
@@ -79,7 +86,7 @@ public class ConversationOrchestrator {
             return new ChatResponse(message, List.of(), List.of(), true);
         }
 
-        String assistantMessage = recommendationAgent.explain(conversationId, preferences, cars);
+        String assistantMessage = recommendationAgent.explain(conversationId, preferences, cars, exactMatch);
         List<CarResponse> carResponses = cars.stream().map(CarMapper::toResponse).toList();
         return new ChatResponse(assistantMessage, carResponses, carResponses, true);
     }
