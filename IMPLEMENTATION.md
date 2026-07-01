@@ -98,37 +98,47 @@ Notes:
   requires Spring Boot 4.1.0 (`org.springframework.core.retry.RetryTemplate`
   only exists in Spring Framework 6.2+). Rather than jump to Boot 4, pinned
   Spring AI to the **1.1.8** line, which targets Boot 3.5.15.
-- LLM provider is **Anthropic Claude** (`spring-ai-starter-model-anthropic`,
-  API-key auth). Config: `spring.ai.anthropic.api-key` and
-  `spring.ai.anthropic.chat.options.model` (nested under `options`, verified
-  against `AnthropicChatProperties`/`AnthropicConnectionProperties` source at
-  v1.1.8 — same nested-options pattern the Gemini integration used), sourced
-  from env vars `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` (default
-  `claude-opus-4-8`). Switched from Gemini after repeated credential problems
-  (leaked-key revocation, then a value that turned out to be a short-lived
-  OAuth token rather than a real API key) — Anthropic's `sk-ant-...` keys
-  don't have that ambiguity. `LlmConfig`/`LlmClient`/`LlmException` needed
-  zero code changes for the swap since they only depend on Spring AI's
-  provider-agnostic `ChatClient`/`ChatClient.Builder`.
-- `application.yml` reads `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `DB_URL`,
+- LLM provider is **Google Gemini** (`spring-ai-starter-model-google-genai`,
+  API-key auth) — switched back from Anthropic Claude. Config:
+  `spring.ai.google.genai.api-key` and
+  `spring.ai.google.genai.chat.options.model` (nested under `options`,
+  verified against `GoogleGenAiChatProperties`/`GoogleGenAiConnectionProperties`
+  source at v1.1.8, extracted from the local Maven cache — confirms the
+  M5-era finding that the flat `chat.model` property is silently ignored;
+  `chat.options.model` is the real one), sourced from env vars
+  `GEMINI_API_KEY` and `GEMINI_MODEL` (default `gemini-2.0-flash`, matching
+  `GoogleGenAiChatProperties.DEFAULT_MODEL`). Switched from Anthropic because
+  the Anthropic account has no billing configured and Gemini's AI Studio
+  free tier unblocks local development without a paid account; this is
+  purely a cost/availability decision, not a repeat of the earlier Gemini
+  credential problems (leaked key, then a short-lived OAuth token passed as
+  an API key) — this round uses a fresh `GEMINI_API_KEY` from AI Studio.
+  `LlmConfig`/`LlmClient`/`LlmException` needed zero code changes for the
+  swap (second time this round-trip has been verified) since they only
+  depend on Spring AI's provider-agnostic `ChatClient`/`ChatClient.Builder`.
+- `application.yml` reads `GEMINI_API_KEY`, `GEMINI_MODEL`, `DB_URL`,
   `DB_USERNAME`, `DB_PASSWORD`, `PORT`, `FRONTEND_ORIGIN` from env — nothing
   hardcoded.
 - Dev/test database is a **Railway-hosted MySQL** (public proxy host/port
   default into `DB_URL`; `DB_PASSWORD` has no default and must be supplied).
   A local MySQL 8.0 is also available on this machine if ever needed instead.
-- For day-to-day local runs (e.g. IntelliJ's Run button), real credentials
-  live in `src/main/resources/application-local.yml` (gitignored — never
-  committed) under the `local` Spring profile, rather than passing env vars
-  by hand every time. Activate it once in IntelliJ: **Run/Debug Configurations
-  → CarDekhoAiApplication → Active profiles: `local`** (or `mvnw spring-boot:run
+- For day-to-day local runs (e.g. IntelliJ's Run button, or the VS Code
+  `CarDekhoAiApplication (local)` launch config), real credentials live in
+  `src/main/resources/application-local.yml` (gitignored — never committed)
+  under the `local` Spring profile, rather than passing env vars by hand
+  every time. Activate it once in IntelliJ: **Run/Debug Configurations →
+  CarDekhoAiApplication → Active profiles: `local`** (or `mvnw spring-boot:run
   -Dspring-boot.run.profiles=local` from the CLI). Without this profile active,
-  the app won't connect — `application.yml`'s `DB_PASSWORD`/`ANTHROPIC_API_KEY`
+  the app won't connect — `application.yml`'s `DB_PASSWORD`/`GEMINI_API_KEY`
   placeholders have no working defaults by design (never hardcode secrets in
-  the committed base config).
-- Anthropic account currently has **no billing/credits** — auth succeeds
-  (confirmed via a live call) but requests fail with "credit balance is too
-  low". Live end-to-end LLM verification is blocked until billing is set up
-  at console.anthropic.com; all code is otherwise verified via mocked tests.
+  the committed base config). `application-local.yml`'s `spring.ai.google.genai.api-key`
+  currently holds a `REPLACE_WITH_YOUR_GEMINI_API_KEY` placeholder — swap in
+  a real key from Google AI Studio before running.
+- Anthropic account still has **no billing/credits** configured — that
+  integration is dormant, not deleted; the `spring-ai-starter-model-anthropic`
+  dependency was removed from `pom.xml` in favor of the GenAI starter. Swap
+  back is a repeat of this same provider-swap pattern (pom.xml dependency +
+  two `application*.yml` blocks) if Anthropic billing gets set up later.
 
 The Maven Wrapper (`mvnw` / `mvnw.cmd` / `.mvn/wrapper/`) is included, so the
 project builds with one command: `./mvnw.cmd compile`. Verified with
@@ -225,6 +235,42 @@ under `chat.options.model`, not a flat `chat.model`, verified against
   correct (`sk-ant-api03-...`, authenticates successfully), but the account
   has no billing/credits yet — live calls fail with "credit balance is too
   low" until billing is set up. Not a code issue.
+
+**Post-M9 update: switched back to Gemini.** With Anthropic billing still
+unresolved, swapped the provider a second time — `pom.xml`
+(`spring-ai-starter-model-anthropic` → `spring-ai-starter-model-google-genai`)
+and both `application.yml`/`application-local.yml` (`spring.ai.anthropic.*` →
+`spring.ai.google.genai.*`, same nested `chat.options.model` pattern,
+verified again against `GoogleGenAiChatProperties`/`GoogleGenAiConnectionProperties`
+source at v1.1.8, this time extracted straight from the local Maven cache
+rather than guessed). Zero Java code changes, third time this exact
+provider-agnostic design has paid off. This swap is purely a cost decision
+(Gemini's AI Studio free tier vs. Anthropic requiring paid credits) — not a
+repeat of the original Gemini credential failures, which used a different,
+fresh `GEMINI_API_KEY`.
+
+Live-verified via direct `curl` against the real Gemini API before wiring
+the key into Spring config (`GET /v1beta/models` for auth, then
+`POST /v1beta/models/{model}:generateContent` for the actual call shape the
+app uses):
+- The key authenticates (`GET /v1beta/models` → 200, full model catalog
+  returned) despite not matching the `AIzaSy...` prefix historically
+  associated with AI Studio keys — prefix alone isn't a reliable validity
+  check, confirmed empirically rather than assumed.
+- **Free-tier quota is model-specific per account/project, not blanket
+  across all Gemini models.** `gemini-2.0-flash` (the default picked at
+  swap time) returned `429 RESOURCE_EXHAUSTED` with
+  `limit: 0` on `generate_content_free_tier_requests` for this key — zero
+  free quota, would fail on every real call. Swept several candidates
+  (`gemini-2.0-flash-lite` also 0-quota; `gemini-2.5-flash-lite` 503
+  temporarily overloaded) and confirmed `gemini-2.5-flash` actually returns
+  generated content on the free tier for this account. `application.yml`'s
+  `GEMINI_MODEL` default updated from `gemini-2.0-flash` to
+  `gemini-2.5-flash` accordingly — **don't assume any specific Gemini model
+  has free-tier access without testing that exact model against the key in
+  use**, since it varies by account.
+- `application-local.yml`'s `spring.ai.google.genai.api-key` now holds a
+  live, verified key (no longer a placeholder).
 
 **M6 — Agents: Conversation + Preference** ✅ *done*
 `preference/dto/UserPreference` (record: `budget`/`familySize`/`groundClearance`/

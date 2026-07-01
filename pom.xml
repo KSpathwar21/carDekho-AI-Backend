@@ -65,10 +65,10 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- Spring AI - Anthropic Claude (API-key auth) -->
+        <!-- Spring AI - Google Gemini (API-key auth, free tier via AI Studio) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-model-anthropic</artifactId>
+            <artifactId>spring-ai-starter-model-google-genai</artifactId>
         </dependency>
 
         <!-- SQL parsing for SqlValidator (AST-based validation, not regex) -->
