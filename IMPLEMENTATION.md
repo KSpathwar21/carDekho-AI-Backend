@@ -51,21 +51,21 @@ com.carDekhoAI
 │   ├── entity/                    Car, BodyType, FuelType, Transmission
 │   ├── repository/                CarRepository
 │   ├── service/                   CarService, CarNotFoundException
-│   ├── tool/                      DatabaseTool (executes validated SQL — M8)
+│   ├── tool/                      DatabaseTool, DatabaseQueryException
 │   └── dto/                       CarResponse, CarMapper
 │
 ├── recommendation/               # explanation generation feature
 │   ├── agent/                     RecommendationAgent
-│   └── dto/                       RecommendationResponse
+│   └── dto/                       (empty — RecommendationResponse deferred, unused)
 │
 ├── llm/                          # shared LLM access (used by all agents above)
 │   ├── config/                    LlmConfig (ChatClient bean)
 │   └── client/                    LlmClient (prompt logging), LlmException
 │
 └── common/                       # cross-cutting only
-    ├── config/                    CorsConfig, JacksonConfig
-    ├── exception/                 GlobalExceptionHandler, ErrorResponse, custom exceptions
-    └── util/                      shared helpers
+    ├── config/                    CorsConfig
+    ├── exception/                 GlobalExceptionHandler, ErrorResponse
+    └── util/                      (empty — no shared helper has needed one yet)
 ```
 
 Rule of thumb: if a class is agent/domain-specific, it lives inside that
@@ -280,18 +280,73 @@ needs verifying even when the initial read seemed to confirm the intended
 behavior (an EOF check existed in the file, just in a different, unused
 overload).
 
-**M8 — Database Tool + Recommendation Flow**
-`car/tool/DatabaseTool` executes validated SQL via `JdbcTemplate`, returns
-`List<Car>`, never leaks SQL exceptions upward.
-`recommendation/agent/RecommendationAgent` turns `UserPreference` + cars into
-a markdown explanation (summary, pros/cons, trade-offs, alternatives).
-Wire the full chain in `ConversationOrchestrator`; `/chat/message` now
-returns real recommendations + comparison + `completed` flag.
+**M8 — Database Tool + Recommendation Flow** ✅ *done*
+`car/tool/DatabaseTool` executes the validated SQL via `JdbcTemplate` to get
+an **ordered** list of matching car IDs, then re-fetches full `Car` entities
+via `CarRepository.findAllById` (correctly hydrating `pros`/`cons` through
+JPA's `@ElementCollection`, which a raw JDBC row-mapper against `cars` alone
+can't do — those live in separate `car_pros`/`car_cons` tables `SqlValidator`
+forbids joining to) and **re-orders the result to match the original ID
+order** (`findAllById` doesn't preserve input order, and that order is the
+LLM's chosen `ORDER BY`/`LIMIT` ranking). `DatabaseQueryException` wraps any
+`DataAccessException`, satisfying "never expose SQL exceptions to frontend."
 
-**M9 — Cross-Cutting: Validation & Exceptions**
-`common/config/CorsConfig`, `common/exception/GlobalExceptionHandler`
-covering LLM failure, DB failure, invalid SQL, conversation-not-found,
-bean-validation errors — all mapped to a consistent `ErrorResponse`.
+`recommendation/agent/RecommendationAgent` takes `UserPreference` + `List<Car>`
+directly (matching the docs literally, no pointless `CarResponse` translation)
+and returns a markdown explanation (summary, pros/cons/trade-offs per car,
+closing "Alternative Suggestions" section, explicit never-hallucinate
+instruction). `recommendation/dto/RecommendationResponse` deliberately **not
+created** — same deferred-until-needed precedent as M4/M6/M7 (`explain`
+returns a plain markdown `String`, nothing needs a wrapper type).
+
+`ChatResponse` gains `recommendations`/`comparison` (both `List<CarResponse>`,
+reusing the same mapped list for both — no distinct "comparison" shape exists
+anywhere in the docs, and `PROJECT_SCOPE.md`'s Comparison View fields are a
+strict subset of `CarResponse`'s existing fields). `ConversationOrchestrator`
+now has 6 dependencies; the "preferences complete" branch generates SQL,
+executes it, and **skips `RecommendationAgent` entirely on empty results**
+(deterministic "no matches, try relaxing your criteria" message instead —
+avoids an LLM call explaining zero cars and any hallucination risk on empty
+data). Covered by `DatabaseToolTest` (6 cases, including a reordering
+regression test), `RecommendationAgentTest` (6 cases), and a rewritten
+`ConversationOrchestratorTest` (4 cases, replacing the old placeholder-text
+assertion with real recommendation/empty-result paths) — 56/56 tests passing,
+no network. Live end-to-end verification of the full `/chat/start` →
+`/chat/message` → recommendations flow remains blocked on the same Anthropic
+billing issue noted since M5.
+
+**M9 — Cross-Cutting: Validation & Exceptions** ✅ *done*
+`common/exception/GlobalExceptionHandler` (`@RestControllerAdvice`) now
+centralizes all 6 custom exceptions built across M3–M8, replacing the two
+controller-local handlers (`CarController`/`ChatController`) that returned
+plain, inconsistent `String` bodies. Status mapping honors the docs' category
+split even though several exceptions originate from the same LLM-agent
+layer: `{LlmException, PreferenceExtractionException, DatabaseQueryException}`
+→ **503** (genuine upstream-dependency failures — the LLM call itself failing,
+its output being unusable, or the DB being unreachable; consolidated into one
+handler with an `instanceof` check picking "Database Failure" vs "LLM
+Failure" as the label) vs. `SqlGenerationException` → **500**, its own
+"Invalid SQL" category (our own system failing to produce valid SQL after
+3 attempts — not a dependency being down, distinct from the generic
+"Internal Server Error" catch-all). `{CarNotFoundException,
+ConversationNotFoundException}` → 404 (consolidated). `MethodArgumentNotValidException`
+→ 400, field errors joined into one message. Generic `Exception` catch-all →
+500, logs the full exception server-side but never leaks the original message
+to the client.
+
+`common/exception/ErrorResponse` (record: `timestamp`, `status`, `error`,
+`message`, `path` — `path` via `HttpServletRequest.getRequestURI()`, worth
+the one extra parameter per handler for a small API surface).
+
+`common/config/CorsConfig` — constructor-injected `@Value("${cors.allowed-origins}")`
+(not field injection, matching this project's 100%-consistent convention),
+splits on commas for future multi-origin support (M11), `allowedMethods`
+deliberately trimmed to `GET, POST, OPTIONS` — the API's actual current
+surface, not pre-added for hypothetical endpoints.
+
+Covered by `GlobalExceptionHandlerTest` (8 cases, plain JUnit + Mockito, no
+Spring context — same zero-network convention as every other test in this
+project) — 64/64 total tests passing.
 
 **M10 — Testing**
 JUnit 5 + Mockito unit tests for `SqlValidator`, `ConversationOrchestrator`,
