@@ -558,7 +558,7 @@ OPENAI_API_KEY
 
 or
 
-GEMINI_API_KEY
+GROQ_API_KEY
 
 Never hardcode secrets.
 

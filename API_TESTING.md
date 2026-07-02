@@ -72,11 +72,11 @@ LLM parses them out. (3 more optional fields — `brandPreference`,
 completion.)
 
 **Important caveat**: every LLM call in this flow (preference extraction, SQL
-generation, recommendation explanation) goes through Google Gemini
-(`gemini-2.5-flash`, free tier). The free tier is rate-limited to **20
-requests/minute** on this account — if you hammer `/chat/message` in quick
+generation, recommendation explanation) goes through Groq
+(`llama-3.3-70b-versatile`, free tier). The free tier is rate-limited, so if
+you hammer `/chat/message` in quick
 succession (e.g. automated Postman Collection Runner replays), you can hit
-a `429` from Gemini, which surfaces as a **503 "LLM Failure"**. Space calls
+a `429` from Groq, which surfaces as a **503 "LLM Failure"**. Space calls
 out by a few seconds if you see this; it's not a bug in your test.
 
 As of the latest backend update, the "preferences still incomplete" path
@@ -235,7 +235,7 @@ Starting a **new** conversation after this just means calling
 
 These don't require a `conversationId` — they're a plain paginated read API
 over the `cars` table, useful for browsing/testing independent of the LLM
-flow (and unaffected by Gemini's free-tier rate limit, since they don't
+flow (and unaffected by Groq's free-tier rate limit, since they don't
 call the LLM at all).
 
 ### Browse (paginated)
@@ -311,7 +311,7 @@ message, path}`.
 | `POST /chat/message` with an unknown `conversationId` | 404 | `Not Found` |
 | `POST /chat/message` with blank/missing `conversationId` or `message` | 400 | `Validation Failed` |
 | SQL generation fails validation 3x in a row (SqlAgent exhausted retries) | 500 | `Invalid SQL` |
-| Gemini API call fails (free-tier rate limit — 20 req/min, network) | 503 | `LLM Failure` |
+| Groq API call fails (free-tier rate limit, network) | 503 | `LLM Failure` |
 | Preference-extraction JSON from the LLM is malformed | 503 | `LLM Failure` |
 | DB query fails (bad SQL execution, connection issue) | 503 | `Database Failure` |
 | Anything else unhandled | 500 | `Internal Server Error` (generic message — original exception never leaked) |

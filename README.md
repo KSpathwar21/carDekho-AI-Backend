@@ -40,13 +40,13 @@ Full request/response contracts: `API_TESTING.md` (curl/Postman) and
 | Layer | Choice | Why |
 |---|---|---|
 | Language / framework | Java 17, Spring Boot 3.5.15 | Spec called for Spring Boot; Java 21 was the original target but only JDK 17 was available locally — Spring Boot 3.5.15 + Spring AI 1.1.8 fully support 17, so the target was dropped without losing any needed capability. |
-| LLM access | Spring AI 1.1.8 (`ChatClient`) | Provider-agnostic by design. This paid off directly: the LLM provider was swapped **three times** over the project (Gemini → Anthropic → Gemini again, chasing credential issues and then billing/cost) and every swap needed **zero Java code changes** — only `pom.xml` and `application.yml`. |
-| LLM provider | Google Gemini (`gemini-2.5-flash`) | Free tier, no billing setup required. The exact free-tier RPM limit was verified empirically per model against the real API rather than assumed — it's not uniform across models on a given account (the "lite" variants turned out to have *lower* quotas than the full model here, which was counter-intuitive). |
+| LLM access | Spring AI 1.1.8 (`ChatClient`) | Provider-agnostic by design. This paid off directly: the LLM provider was swapped over the project while chasing credential, billing, and cost constraints, and each swap needed **zero Java code changes** — only `pom.xml` and `application.yml`. |
+| LLM provider | Groq (`llama-3.3-70b-versatile`) | Free-tier friendly via Spring AI's OpenAI-compatible client, with no agent-code dependency on Groq-specific APIs. |
 | Database | MySQL, Railway-hosted | Relational fit for a structured, filterable car catalog. Same managed instance is reused for local dev and production rather than standing up separate databases. |
 | SQL safety | JSqlParser 5.3 (AST-based validation) | The project brief's literal suggestion was regex/keyword matching; real AST parsing was chosen instead for genuine defense-in-depth, since LLM-generated SQL is inherently untrusted input. This caught a real bug during test-driven development: `CCJSqlParserUtil.parse()` doesn't detect trailing content after the first statement, so `"SELECT ...; DROP TABLE cars"` silently passed validation — fixed by switching to `parseStatements()` and rejecting anything but exactly one statement. |
 | Boilerplate | Lombok | Reduces entity/DTO ceremony. |
 | Testing | JUnit 5 + Mockito | 72 tests, **zero network** by convention — every LLM/DB call is mocked, so the suite is fast, deterministic, and runs the same in CI as it does locally. |
-| Build / deploy | Maven, Docker (multi-stage build), Railway | Config is 100% environment-variable-driven (`PORT`, `DB_URL`, `GEMINI_API_KEY`, etc.) — no code differences between local and production. |
+| Build / deploy | Maven, Docker (multi-stage build), Railway | Config is 100% environment-variable-driven (`PORT`, `DB_URL`, `GROQ_API_KEY`, etc.) — no code differences between local and production. |
 
 ---
 
@@ -56,7 +56,7 @@ Full request/response contracts: `API_TESTING.md` (curl/Postman) and
 ```bash
 docker compose up
 ```
-Needs a `.env` file with `GEMINI_API_KEY=...` (gitignored, same pattern as
+Needs a `.env` file with `GROQ_API_KEY=...` (gitignored, same pattern as
 `application-local.yml`). Spins up a fresh local MySQL alongside the app —
 note the schema is created automatically but seed data (`data.sql`) still
 needs a manual load, same as the Railway dev DB (deliberate — never
@@ -109,9 +109,9 @@ live API calls — before moving to the next.
 ### Tech stack — see the table above for the full reasoning per choice.
 The short version: Spring Boot because the spec called for it, Spring AI's
 provider-agnostic `ChatClient` specifically so a provider swap would never
-require touching agent code (validated three times over), real AST-based
+require touching agent code, real AST-based
 SQL parsing over regex because LLM output is untrusted input and I wanted
-genuine defense-in-depth, and Gemini's free tier to remove the billing
+genuine defense-in-depth, and Groq's free tier to remove the billing
 blocker entirely for development and demoing.
 
 ### What I delegated to AI tools vs. did manually
@@ -123,7 +123,7 @@ deliberate, not "let it do everything":
 as a living build log; generating entities, DTOs, mappers, and the bulk of
 the ~72-test suite; debugging real runtime errors (Spring AI's
 nested-`options` config property paths, verified against actual library
-source rather than guessed); diagnosing Gemini rate-limit/quota behavior
+source rather than guessed); diagnosing Groq rate-limit/quota behavior
 by making live `curl` calls against the real API instead of trusting
 documentation; designing and testing the SQL AST validator; authoring the
 Docker/Railway config; and keeping `API_TESTING.md`/`FRONTEND_INTEGRATION.md`
@@ -152,7 +152,7 @@ to bypass its own credential-verification heuristics) while still
 independently verifying the underlying technical claim rather than
 blindly trusting or blindly dismissing it; and redesigning the
 conversation flow to cut LLM calls per turn roughly in half — directly
-working around Gemini's 20 req/min free-tier ceiling — without me having
+working around Groq's free-tier ceiling — without me having
 to dig into Spring AI internals myself.
 
 **Where it got in the way:** the hardware constraint above shaped what
@@ -174,7 +174,7 @@ correctness over raw speed, but a real one.
    contract — `FRONTEND_INTEGRATION.md` is ready for this, but no UI
    exists in this repo yet.
 3. Add a small number of real, non-mocked end-to-end smoke tests against
-   the live Gemini API, gated so they don't run in normal CI.
+   the live Groq API, gated so they don't run in normal CI.
 4. Add proactive client-side rate-limit pacing in `LlmClient` so the app
-   self-throttles instead of occasionally hitting Gemini's free-tier 429.
+   self-throttles instead of occasionally hitting Groq's free-tier 429.
 5. Expand the seed dataset beyond 51 cars for a more convincing demo.

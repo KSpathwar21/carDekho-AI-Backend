@@ -396,15 +396,15 @@ Every non-2xx response has this shape:
 | `400` | `Validation Failed` | `conversationId` or `message` blank/missing in the request body | Client-side bug — validate before sending; if it happens, show a generic "something went wrong, please retry" and check the payload. |
 | `404` | `Not Found` | Unknown `conversationId` (e.g. backend restarted and lost in-memory state) or unknown car `id` | For chat: prompt the user to start a new conversation (`POST /chat/start` again) — the old `conversationId` is gone. For cars: show a "car not found" state. |
 | `500` | `Invalid SQL` | Backend's own SQL generation failed after 3 retries (not the user's fault) | Show a generic retry-later message; this indicates a backend/LLM prompt issue, not something the frontend can fix by retrying the same request. |
-| `503` | `LLM Failure` | Gemini API call failed (free-tier rate limit — 20 req/min, network, or malformed LLM output) | Transient — safe to offer a "retry" button that resends the same `/chat/message` call. |
+| `503` | `LLM Failure` | Groq API call failed (free-tier rate limit, network, or malformed LLM output) | Transient — safe to offer a "retry" button that resends the same `/chat/message` call. |
 | `503` | `Database Failure` | MySQL query execution failed | Transient — safe to offer a "retry" button. |
 | `500` | `Internal Server Error` | Anything unhandled | Generic fallback error UI; message is intentionally non-specific (`"An unexpected error occurred. Please try again later."`) — never surfaces internal details. |
 
 **Practical note on `503`s during current development**: the backend runs
-on Google Gemini's **free tier** (`gemini-2.5-flash`), which is
-rate-limited to **20 requests/minute** on this account. If a burst of
+on Groq's **free tier** (`llama-3.3-70b-versatile`), which is
+rate-limited. If a burst of
 `/chat/message` calls (e.g. rapid manual testing, or a frontend that fires
-requests without debouncing) exceeds that, Gemini returns a `429` which
+requests without debouncing) exceeds that, Groq returns a `429` which
 surfaces as `503 LLM Failure`. This is transient and typically clears
 within ~30-60 seconds — a "retry" button or a short auto-retry-after-delay
 is reasonable UX for this specific case, unlike other `503`s. It is not
@@ -416,7 +416,7 @@ greeting now asks for all 7 required fields at once (see section 2 above)
 so a thorough first reply can finish the gathering phase in a single call
 instead of several. If every single `/chat/message` call fails the
 same way regardless of payload and pacing, that's more likely a genuine
-config issue (e.g. missing `GEMINI_API_KEY`) than the rate limit — check the
+config issue (e.g. missing `GROQ_API_KEY`) than the rate limit — check the
 backend logs for the underlying cause before assuming rate limiting.
 `/cars` and `/cars/{id}` don't call the LLM and are unaffected either way.
 
