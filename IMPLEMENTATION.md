@@ -503,10 +503,40 @@ tying the test directly to the "one LLM call per turn" goal) and updated
 from 73: `ConversationAgentTest`'s one test was deleted with the class, no
 new test classes were needed since `PreferenceAgent` itself didn't change).
 
-**M11 — Docker & Railway**
-`Dockerfile`, `docker-compose.yml` (app + MySQL), confirm `application.yml`
-env vars are the only thing that changes between local and Railway, confirm
-`/health` responds for Railway health checks.
+**M11 — Docker & Railway** ✅ *done*
+`Dockerfile` — multi-stage build (`maven:3.9-eclipse-temurin-17` build
+stage, `eclipse-temurin:17-jre-alpine` runtime stage; `pom.xml` copied and
+`dependency:go-offline` run before copying `src/`, for Docker layer
+caching — dependencies only re-resolve when `pom.xml` changes, not on every
+source edit). `docker-compose.yml` — app + a fresh local MySQL 8.0
+container (distinct from the Railway-hosted dev MySQL already in use;
+this one is purely for local one-command verification), wired via the
+same env vars `application.yml` already reads (`DB_URL`, `DB_USERNAME`,
+`DB_PASSWORD`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `FRONTEND_ORIGIN`) — zero
+Java/config code changes needed, confirming the M1–M10 env-var-driven
+design already satisfied "no code changes between local and production."
+`GEMINI_API_KEY` is read from a local `.env` file (already gitignored,
+same pattern as `application-local.yml`) via docker-compose's automatic
+`.env` loading. The local MySQL container starts empty — Hibernate
+`ddl-auto: update` creates the schema on boot, but `data.sql` still isn't
+auto-run (same deliberate M3 decision), so seeding it is a manual step
+identical to the one already documented for the Railway dev DB.
+
+`railway.json` added to force Railway to build from the `Dockerfile`
+(rather than falling back to its Nixpacks auto-detection) and to point
+its healthcheck at `/actuator/health` explicitly — Railway's default
+healthcheck path is `/`, which this app doesn't serve (routes are under
+`/chat`, `/cars`, `/actuator`), so leaving it unset would have made every
+deploy report unhealthy despite the app running fine.
+
+Actual deployment: this backend is added as a **new service inside the
+existing Railway project** that already hosts the dev MySQL (confirmed via
+`DB_URL`'s `reseau.proxy.rlwy.net` default) rather than provisioning a
+separate project/database — the schema and 51/153/103 seed rows already
+verified there in M3 are reused as-is, no re-seeding needed. Deployment
+itself (connecting the GitHub repo, setting env vars in Railway's
+dashboard) requires the project owner's Railway account access and was
+handed off rather than automated.
 
 ---
 
