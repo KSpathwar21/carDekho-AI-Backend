@@ -15,7 +15,9 @@ import java.util.UUID;
 public class ConversationService {
 
     private static final String GREETING = "Hi! I'm your AI Car Buying Assistant. "
-            + "I'll ask a few questions to recommend the perfect car.";
+            + "To recommend the perfect car, please tell me: your budget, preferred fuel type, "
+            + "body type, transmission, typical driving pattern (city, highway, or off-road), "
+            + "family size, and what matters most to you (e.g. safety, mileage, budget, or space).";
 
     private final ConversationStore conversationStore;
 

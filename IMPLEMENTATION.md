@@ -463,6 +463,46 @@ the fallback SQL is generated, executed, and explained with `exactMatch=false`,
 and a renamed `completesWithEmptyResultsWhenNoCarsMatchEvenAfterFallback`
 covering the still-possible true-zero-results case) — 73/73 tests passing.
 
+**Post-M10 update 2: cut LLM calls per turn by batching preference questions
+upfront instead of asking one at a time.** Gemini's free tier caps
+`gemini-2.5-flash` at 20 requests/minute (see the Post-M9 update). Every
+`/chat/message` turn on the "preferences still incomplete" path made **2**
+sequential `LlmClient.call()`s — `PreferenceAgent.extract()` then
+`ConversationAgent.nextQuestion()` — and a typical conversation needed ~5-7
+such turns before all 7 required fields were filled, burning most of the
+20/min budget before the SQL/recommendation phase even started.
+
+Rather than merging the two into one LLM call (an earlier direction that was
+considered and abandoned before implementation), the second call was
+eliminated entirely: `ConversationService.GREETING` now asks all 7 required
+fields (`budget`, `fuelType`, `bodyType`, `transmission`, `drivingPattern`,
+`familySize`, `priority`) up front in one static message — no LLM call, same
+as the greeting always was — and `ConversationOrchestrator` builds any
+follow-up nudge for still-missing fields as **deterministic Java text**
+(`buildMissingFieldsMessage`, reusing the exact field-checking logic and
+display-name strings `ConversationAgent.describeMissingFields` used) rather
+than an LLM-phrased question. `PreferenceAgent` is completely unchanged —
+still exactly 1 extraction call per turn, same as before; what's gone is the
+second call, not the first. `chat/agent/ConversationAgent.java` and its test
+deleted outright (this project's no-dead-code convention), `ConversationOrchestrator`'s
+constructor drops from 6 params to 5. `SqlAgent`/`RecommendationAgent`
+(the completion-turn calls) are unaffected — out of scope, since
+`RecommendationAgent` needs real DB results from `SqlAgent`'s query first
+and the two can't be merged further.
+
+Net effect: the gathering phase drops from ~2 LLM calls/turn to exactly 1,
+and — since users now see the full field list in the first message instead
+of being drip-fed one question per turn — a thorough single reply can
+complete extraction in one call instead of five-plus round trips.
+
+Covered by updated `ConversationOrchestratorTest` (5-param constructor, no
+`ConversationAgent` mock, exact-match assertions on the new deterministic
+message text, an explicit `verify(preferenceAgent, times(1)).extract(...)`
+tying the test directly to the "one LLM call per turn" goal) and updated
+`ConversationServiceTest` (new greeting text) — 72/72 tests passing (down
+from 73: `ConversationAgentTest`'s one test was deleted with the class, no
+new test classes were needed since `PreferenceAgent` itself didn't change).
+
 **M11 — Docker & Railway**
 `Dockerfile`, `docker-compose.yml` (app + MySQL), confirm `application.yml`
 env vars are the only thing that changes between local and Railway, confirm

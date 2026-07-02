@@ -5,7 +5,6 @@ import com.carDekhoAI.car.entity.Car;
 import com.carDekhoAI.car.entity.FuelType;
 import com.carDekhoAI.car.entity.Transmission;
 import com.carDekhoAI.car.tool.DatabaseTool;
-import com.carDekhoAI.chat.agent.ConversationAgent;
 import com.carDekhoAI.chat.dto.ChatResponse;
 import com.carDekhoAI.chat.model.Conversation;
 import com.carDekhoAI.chat.model.ConversationStatus;
@@ -28,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -35,13 +35,12 @@ import static org.mockito.Mockito.when;
 class ConversationOrchestratorTest {
 
     private final ConversationStore conversationStore = mock(ConversationStore.class);
-    private final ConversationAgent conversationAgent = mock(ConversationAgent.class);
     private final PreferenceAgent preferenceAgent = mock(PreferenceAgent.class);
     private final SqlAgent sqlAgent = mock(SqlAgent.class);
     private final DatabaseTool databaseTool = mock(DatabaseTool.class);
     private final RecommendationAgent recommendationAgent = mock(RecommendationAgent.class);
     private final ConversationOrchestrator orchestrator = new ConversationOrchestrator(
-            conversationStore, conversationAgent, preferenceAgent, sqlAgent, databaseTool, recommendationAgent);
+            conversationStore, preferenceAgent, sqlAgent, databaseTool, recommendationAgent);
 
     private Conversation conversation;
     private final UserPreference completePreferences = new UserPreference(
@@ -79,20 +78,22 @@ class ConversationOrchestratorTest {
     }
 
     @Test
-    void asksNextQuestionWhenPreferencesIncomplete() {
+    void buildsDeterministicFollowUpWhenPreferencesIncomplete() {
         UserPreference incomplete = new UserPreference(
                 1800000L, null, null, null, null, null, null, null, null, null);
         when(preferenceAgent.extract(conversation)).thenReturn(incomplete);
-        when(conversationAgent.nextQuestion(conversation, incomplete)).thenReturn("What fuel type?");
 
         ChatResponse response = orchestrator.handleMessage("conv-1", "Around 18 lakh budget");
 
         assertThat(response.completed()).isFalse();
-        assertThat(response.assistantMessage()).isEqualTo("What fuel type?");
+        assertThat(response.assistantMessage()).isEqualTo(
+                "Thanks! I still need a few more details: fuel type, body type, transmission, "
+                        + "driving pattern, family size, top priority. Could you share those?");
         assertThat(response.recommendations()).isEmpty();
         assertThat(response.comparison()).isEmpty();
         assertThat(conversation.getStatus()).isEqualTo(ConversationStatus.IN_PROGRESS);
         verify(conversationStore).save(conversation);
+        verify(preferenceAgent, times(1)).extract(conversation);
         verifyNoInteractions(sqlAgent, databaseTool, recommendationAgent);
     }
 
@@ -101,7 +102,6 @@ class ConversationOrchestratorTest {
         UserPreference incomplete = new UserPreference(
                 1800000L, null, null, null, null, null, null, null, null, null);
         when(preferenceAgent.extract(conversation)).thenReturn(incomplete);
-        when(conversationAgent.nextQuestion(conversation, incomplete)).thenReturn("What fuel type?");
 
         orchestrator.handleMessage("conv-1", "Around 18 lakh budget");
 
@@ -109,7 +109,9 @@ class ConversationOrchestratorTest {
         assertThat(conversation.getMessages().get(0).role()).isEqualTo(MessageRole.USER);
         assertThat(conversation.getMessages().get(0).content()).isEqualTo("Around 18 lakh budget");
         assertThat(conversation.getMessages().get(1).role()).isEqualTo(MessageRole.ASSISTANT);
-        assertThat(conversation.getMessages().get(1).content()).isEqualTo("What fuel type?");
+        assertThat(conversation.getMessages().get(1).content()).isEqualTo(
+                "Thanks! I still need a few more details: fuel type, body type, transmission, "
+                        + "driving pattern, family size, top priority. Could you share those?");
     }
 
     @Test
@@ -132,7 +134,6 @@ class ConversationOrchestratorTest {
         assertThat(response.recommendations().get(0).brand()).isEqualTo("Maruti Suzuki");
         assertThat(response.comparison()).isEqualTo(response.recommendations());
         assertThat(conversation.getStatus()).isEqualTo(ConversationStatus.COMPLETED);
-        verify(conversationAgent, never()).nextQuestion(any(), any());
         verify(conversationStore).save(conversation);
         verify(sqlAgent, never()).generateFallbackSql(any(), any());
     }

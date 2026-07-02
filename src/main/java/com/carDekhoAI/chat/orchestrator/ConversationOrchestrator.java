@@ -4,7 +4,6 @@ import com.carDekhoAI.car.dto.CarMapper;
 import com.carDekhoAI.car.dto.CarResponse;
 import com.carDekhoAI.car.entity.Car;
 import com.carDekhoAI.car.tool.DatabaseTool;
-import com.carDekhoAI.chat.agent.ConversationAgent;
 import com.carDekhoAI.chat.dto.ChatResponse;
 import com.carDekhoAI.chat.model.Conversation;
 import com.carDekhoAI.chat.model.ConversationStatus;
@@ -24,20 +23,17 @@ import java.util.List;
 public class ConversationOrchestrator {
 
     private final ConversationStore conversationStore;
-    private final ConversationAgent conversationAgent;
     private final PreferenceAgent preferenceAgent;
     private final SqlAgent sqlAgent;
     private final DatabaseTool databaseTool;
     private final RecommendationAgent recommendationAgent;
 
     public ConversationOrchestrator(ConversationStore conversationStore,
-                                     ConversationAgent conversationAgent,
                                      PreferenceAgent preferenceAgent,
                                      SqlAgent sqlAgent,
                                      DatabaseTool databaseTool,
                                      RecommendationAgent recommendationAgent) {
         this.conversationStore = conversationStore;
-        this.conversationAgent = conversationAgent;
         this.preferenceAgent = preferenceAgent;
         this.sqlAgent = sqlAgent;
         this.databaseTool = databaseTool;
@@ -58,7 +54,7 @@ public class ConversationOrchestrator {
             conversation.setStatus(ConversationStatus.COMPLETED);
             response = buildRecommendationResponse(conversationId, preferences);
         } else {
-            String question = conversationAgent.nextQuestion(conversation, preferences);
+            String question = buildMissingFieldsMessage(preferences);
             response = new ChatResponse(question, List.of(), List.of(), false);
         }
 
@@ -67,6 +63,33 @@ public class ConversationOrchestrator {
         conversationStore.save(conversation);
 
         return response;
+    }
+
+    private String buildMissingFieldsMessage(UserPreference preferences) {
+        StringBuilder missing = new StringBuilder();
+        if (preferences.budget() == null) {
+            missing.append("budget, ");
+        }
+        if (preferences.fuelType() == null) {
+            missing.append("fuel type, ");
+        }
+        if (preferences.bodyType() == null) {
+            missing.append("body type, ");
+        }
+        if (preferences.transmission() == null) {
+            missing.append("transmission, ");
+        }
+        if (preferences.drivingPattern() == null) {
+            missing.append("driving pattern, ");
+        }
+        if (preferences.familySize() == null) {
+            missing.append("family size, ");
+        }
+        if (preferences.priority() == null) {
+            missing.append("top priority, ");
+        }
+        String fields = missing.substring(0, missing.length() - 2);
+        return "Thanks! I still need a few more details: " + fields + ". Could you share those?";
     }
 
     private ChatResponse buildRecommendationResponse(String conversationId, UserPreference preferences) {
