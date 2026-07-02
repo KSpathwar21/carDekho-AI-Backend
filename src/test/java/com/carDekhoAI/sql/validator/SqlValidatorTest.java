@@ -154,6 +154,31 @@ class SqlValidatorTest {
     }
 
     @Test
+    void rejectsUnknownColumnInOrderBy() {
+        SqlValidationResult result = validator.validate(
+                "SELECT * FROM cars ORDER BY CASE WHEN priority = 'budget' THEN price ELSE review_score END LIMIT 5");
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.reason()).contains("priority");
+    }
+
+    @Test
+    void rejectsUnknownColumnInWhereClause() {
+        SqlValidationResult result = validator.validate("SELECT * FROM cars WHERE drivingPattern = 'City' LIMIT 5");
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.reason()).contains("drivingPattern");
+    }
+
+    @Test
+    void rejectsUnknownColumnInSelectList() {
+        SqlValidationResult result = validator.validate("SELECT id, priority FROM cars LIMIT 5");
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.reason()).contains("priority");
+    }
+
+    @Test
     void rejectsCommonTableExpressionBypassAttempt() {
         SqlValidationResult result = validator.validate("WITH x AS (SELECT 1) SELECT * FROM x");
 

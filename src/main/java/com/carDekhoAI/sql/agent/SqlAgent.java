@@ -73,6 +73,10 @@ public class SqlAgent {
 
             Only query the cars table. Do not use JOIN, subqueries, or any other table.
 
+            Preference fields like drivingPattern and priority are not database columns.
+            Use their values to choose the ORDER BY formula in your reasoning, but never
+            reference drivingPattern or priority inside the SQL.
+
             Rules:
             - Do NOT filter out cars with a WHERE clause that requires every preference to
               match (that already returned zero rows). Use no WHERE clause, or only a very
