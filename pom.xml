@@ -65,10 +65,10 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- Spring AI - Google Gemini (API-key auth, free tier via AI Studio) -->
+        <!-- Spring AI - Groq via OpenAI-compatible client (free tier) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-model-google-genai</artifactId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
 
         <!-- SQL parsing for SqlValidator (AST-based validation, not regex) -->

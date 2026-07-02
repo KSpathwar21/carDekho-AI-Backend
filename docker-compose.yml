@@ -22,8 +22,8 @@ services:
       DB_URL: jdbc:mysql://mysql:3306/cardekho
       DB_USERNAME: root
       DB_PASSWORD: rootpassword
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
     depends_on:
       mysql:
