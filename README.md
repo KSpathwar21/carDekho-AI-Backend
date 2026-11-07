@@ -42,7 +42,7 @@ Full request/response contracts: `API_TESTING.md` (curl/Postman) and
 | Language / framework | Java 17, Spring Boot 3.5.15 | Spec called for Spring Boot; Java 21 was the original target but only JDK 17 was available locally — Spring Boot 3.5.15 + Spring AI 1.1.8 fully support 17, so the target was dropped without losing any needed capability. |
 | LLM access | Spring AI 1.1.8 (`ChatClient`) | Provider-agnostic by design. This paid off directly: the LLM provider was swapped over the project while chasing credential, billing, and cost constraints, and each swap needed **zero Java code changes** — only `pom.xml` and `application.yml`. |
 | LLM provider | Groq (`llama-3.3-70b-versatile`) | Free-tier friendly via Spring AI's OpenAI-compatible client, with no agent-code dependency on Groq-specific APIs. |
-| Database | MySQL, Railway-hosted | Relational fit for a structured, filterable car catalog. Same managed instance is reused for local dev and production rather than standing up separate databases. |
+| Database | MySQL 8.0 (Docker for local development) | Relational fit for a structured, filterable car catalog. Local development uses an isolated MySQL container with a persistent Docker volume, keeping local data separate from any hosted database. |
 | SQL safety | JSqlParser 5.3 (AST-based validation) | The project brief's literal suggestion was regex/keyword matching; real AST parsing was chosen instead for genuine defense-in-depth, since LLM-generated SQL is inherently untrusted input. This caught a real bug during test-driven development: `CCJSqlParserUtil.parse()` doesn't detect trailing content after the first statement, so `"SELECT ...; DROP TABLE cars"` silently passed validation — fixed by switching to `parseStatements()` and rejecting anything but exactly one statement. |
 | Boilerplate | Lombok | Reduces entity/DTO ceremony. |
 | Testing | JUnit 5 + Mockito | 72 tests, **zero network** by convention — every LLM/DB call is mocked, so the suite is fast, deterministic, and runs the same in CI as it does locally. |
@@ -50,25 +50,129 @@ Full request/response contracts: `API_TESTING.md` (curl/Postman) and
 
 ---
 
-## Running it
+## Running locally
 
-**Docker (one command):**
+### Prerequisites
+
+- Java 17
+- Docker Desktop with Docker Compose
+- Git
+- A Groq API key
+
+### 1. Clone the repository
+
 ```bash
-docker compose up
+git clone https://github.com/KSpathwar21/carDekho-AI-Backend.git
+cd carDekho-AI-Backend
 ```
-Needs a `.env` file with `GROQ_API_KEY=...` (gitignored, same pattern as
-`application-local.yml`). Spins up a fresh local MySQL alongside the app —
-note the schema is created automatically but seed data (`data.sql`) still
-needs a manual load, same as the Railway dev DB (deliberate — never
-auto-run inserts against a real, persistent database on every boot).
 
-**Maven, with the `local` Spring profile:**
+### 2. Configure environment variables
+
+Create your local environment file:
+
 ```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+cp .env.example .env
 ```
-Real credentials for local runs live in `src/main/resources/application-local.yml`
-(gitignored, never committed).
 
+On Windows Command Prompt:
+
+```cmd
+copy .env.example .env
+```
+
+Update `.env` with your own values:
+
+- `MYSQL_ROOT_PASSWORD`: A strong local MySQL root password.
+- `DB_USERNAME`: Local application database username.
+- `DB_PASSWORD`: Password for the application database user.
+- `GROQ_API_KEY`: Your Groq API key.
+- `GROQ_MODEL`: LLM model to use.
+- `FRONTEND_ORIGIN`: Local frontend origin (default: `http://localhost:5173`).
+
+Never commit your `.env` file or share its contents.
+
+### 3. Start the backend and database
+
+```bash
+docker compose up -d --build
+```
+
+Docker Compose starts:
+
+- Spring Boot backend at `http://localhost:8081`
+- MySQL database at `localhost:3307`
+
+The backend waits for MySQL to become healthy before starting.
+
+### 4. Verify the application
+
+Check container status:
+
+```bash
+docker compose ps
+```
+
+Check application logs:
+
+```bash
+docker compose logs -f app
+```
+
+Check the health endpoint:
+
+```text
+http://localhost:8081/actuator/health
+```
+
+A successful response should report:
+
+```json
+{
+  "status": "UP"
+}
+```
+
+### 5. Load sample car data
+
+The database schema is created automatically. Sample data is not inserted automatically.
+
+Load the provided `data.sql` into the local `cardekho` database using MySQL Workbench or the MySQL command-line client.
+
+### 6. Stop the application
+
+```bash
+docker compose stop
+```
+
+To restart:
+
+```bash
+docker compose up -d
+```
+
+To remove containers and the network while preserving database data:
+
+```bash
+docker compose down
+```
+
+**Do not use `docker compose down -v` unless you intentionally want to delete the local database volume and its data.**
+
+### Running tests
+
+Run the backend test suite with:
+
+```bash
+./mvnw test
+```
+
+On Windows Command Prompt:
+
+```cmd
+mvnw.cmd test
+```
+
+The test suite uses mocked LLM and database dependencies where applicable, so tests do not require live external API calls.
 ---
 
 ## Build notes / reflection
