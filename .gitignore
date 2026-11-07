@@ -4,11 +4,17 @@ target/
 !**/src/test/**/target/
 .kotlin
 
-### Secrets ###
-GEMINI_API_KEY.txt
-*.env
+### Secrets and Environment Files ###
+.env
 .env.*
+!.env.example
+*.env
+
+# Local application configuration
 application-local.yml
+
+# API keys
+GEMINI_API_KEY.txt
 
 ### IntelliJ IDEA ###
 .idea/modules.xml

@@ -1,0 +1,9 @@
+{
+  "DB_URL": "jdbc:mysql://${{MySQL.MYSQLHOST}}:${{MySQL.MYSQLPORT}}/${{MySQL.MYSQLDATABASE}}",
+  "DB_USERNAME": "${{MySQL.MYSQLUSER}}",
+  "DB_PASSWORD": "${{MySQL.MYSQLPASSWORD}}",
+  "GROQ_API_KEY": "REPLACE_WITH_GROQ_API_KEY",
+  "GROQ_BASE_URL": "https://api.groq.com/openai",
+  "GROQ_MODEL": "llama-3.3-70b-versatile",
+  "FRONTEND_ORIGIN": "REPLACE_WITH_FRONTEND_URL"
+}
