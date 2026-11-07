@@ -178,3 +178,12 @@ correctness over raw speed, but a real one.
 4. Add proactive client-side rate-limit pacing in `LlmClient` so the app
    self-throttles instead of occasionally hitting Groq's free-tier 429.
 5. Expand the seed dataset beyond 51 cars for a more convincing demo.
+
+
+
+
+## Related Repository
+
+**Frontend:** [carDekho-AI-frontend](https://github.com/KSpathwar21/carDekho-AI-frontend)
+
+The React frontend communicates with this Spring Boot backend through REST APIs to provide a conversational car discovery and recommendation experience.
